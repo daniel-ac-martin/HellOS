@@ -1,6 +1,9 @@
+const std = @import("std");
 const builtin = @import("builtin");
 
-const MultiBoot = packed struct {
+const StackTrace = std.builtin.StackTrace;
+
+const MultiBoot = extern struct {
     magic: i32,
     flags: i32,
     checksum: i32,
@@ -21,21 +24,28 @@ export var stack_bytes: [16 * 1024]u8 align(16) linksection(".bss") = undefined;
 const stack_bytes_slice = stack_bytes[0..];
 
 export fn _start() callconv(.Naked) noreturn {
-    @call(.{ .stack = stack_bytes_slice }, kmain, .{});
-
+    const stack = stack_bytes_slice;
+    asm volatile (
+        \\ movl %[stk], %esp
+        \\ movl %esp, %ebp
+        \\ jmp kmain
+        :
+        : [stk] "{ecx}" (@intFromPtr(&stack) + @sizeOf(@TypeOf(stack))),
+    );
     while (true) {}
 }
 
-pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn {
-    @setCold(true);
+pub fn panic(msg: []const u8, error_return_trace: ?*StackTrace) noreturn {
+    @branchHint(.cold);
+    _ = error_return_trace;
     terminal.write("KERNEL PANIC: ");
     terminal.write(msg);
     while (true) {}
 }
 
-fn kmain() void {
+export fn kmain() callconv(.C) void {
     terminal.initialize();
-    terminal.write("Hello, Kernel World from Zig 0.7.1!");
+    terminal.write("Hello, Kernel World from Zig 0.14.0!");
 }
 
 // Hardware text mode color constants
@@ -62,7 +72,7 @@ fn vga_entry_color(fg: VgaColor, bg: VgaColor) u8 {
 }
 
 fn vga_entry(uc: u8, color: u8) u16 {
-    var c: u16 = color;
+    const c: u16 = color;
 
     return uc | (c << 8);
 }
@@ -76,7 +86,7 @@ const terminal = struct {
 
     var color = vga_entry_color(VGA_COLOR_LIGHT_GREY, VGA_COLOR_BLACK);
 
-    const buffer = @intToPtr([*]volatile u16, 0xB8000);
+    const buffer: [*]volatile u16 = @ptrFromInt(0xB8000);
 
     fn initialize() void {
         var y: usize = 0;
