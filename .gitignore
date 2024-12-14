@@ -1,3 +1,2 @@
-hellos
-hellos.o
-zig-cache
+zig-out
+.zig-cache
